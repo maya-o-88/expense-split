@@ -24,8 +24,13 @@ html{scroll-behavior:smooth}.jump{display:block;text-align:center;text-decoratio
 #eventBody.viewer-only input:disabled:not([type=checkbox]),
 #eventBody.viewer-only select:disabled {background:#f7f9fc!important;border-color:#e2e8f0!important;color:#1f2d41!important;opacity:1;-webkit-text-fill-color:#1f2d41}
 #eventBody.viewer-only input[type=checkbox]:disabled {opacity:1}
+/* 画面上部のモード表示と閲覧者用ログイン */
+.apphead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.apphead h1{margin:8px 0 5px}
+#viewerLogin{font-size:11px;padding:9px 10px;white-space:nowrap;flex-shrink:0}
+#modeStatus{margin-top:2px}
 </style></head><body><main id="top">
-<h1>🧾 みんなの費用精算</h1><div class="muted">支払い済み・支払い予定の費用をまとめて精算</div>
+<div class="apphead"><h1>🧾 みんなの費用精算</h1><button type="button" id="viewerLogin" class="secondary hidden">管理者ログイン</button></div><div id="modeStatus" class="muted hidden" role="status"></div>
 <section class="panel" id="cloudPanel"><h2>☁️ 共有イベント</h2><p id="authStatus" class="muted">接続中…</p><div class="actions"><button id="login" class="primary hidden">Googleで管理者ログイン</button><button id="logout" class="secondary hidden">ログアウト</button><button id="newEvent" class="secondary hidden">＋ 新しいイベント</button></div><div id="shareBox" class="hidden"><label for="shareUrl">閲覧用URL（参加者に共有）</label><input id="shareUrl" readonly><button id="copyUrl" class="secondary" style="margin-top:8px">URLをコピー</button></div><p id="cloudStatus" class="muted"></p></section><div id="eventBody" class="hidden"><section class="panel"><label for="trip">タイトル</label><input id="trip" placeholder="例：東京旅行"><div id="members"></div><button id="addMember" class="secondary" style="margin-top:12px">＋ メンバー追加</button></section>
 <a class="jump" href="#result">💰 精算結果を見る ↓</a>
 <section class="panel"><h2 id="itemsHeading">入力</h2><div id="items"></div><button id="add" class="primary" style="width:100%;margin-top:10px">＋ 項目を追加</button><div class="line"></div><h2 id="exceptionsHeading">折半しない費用の負担設定</h2><div id="exceptions"></div></section>
@@ -40,7 +45,7 @@ import {getFirestore, doc, getDoc, setDoc, onSnapshot} from 'https://www.gstatic
 (()=>{'use strict';
 const firebaseConfig={apiKey:'AIzaSyCfueQA4tF1qtPWLYTUgBpRYQw_7bTNnAk',authDomain:'expense-split-f748e.firebaseapp.com',projectId:'expense-split-f748e',storageBucket:'expense-split-f748e.firebasestorage.app',messagingSenderId:'1074975210736',appId:'1:1074975210736:web:5c6f5ead25b0d0604f9635'};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
-let currentUser=null,admin=false,readOnly=true,eventId=null,unsub=null,saveTimer=null,dirty=false,loading=false,saveChain=Promise.resolve();
+let currentUser=null,admin=false,readOnly=true,eventId=null,unsub=null,saveTimer=null,dirty=false,authResolved=false,loading=false,saveChain=Promise.resolve();
 const urlId=new URL(location.href).searchParams.get('event');
 const validId=id=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id);
 const authStatus=document.getElementById('authStatus'),cloudStatus=document.getElementById('cloudStatus');
@@ -48,6 +53,11 @@ const show=(id,yes)=>document.getElementById(id).classList.toggle('hidden',!yes)
 const setCloudStatus=msg=>{cloudStatus.textContent=msg};
 function refreshAccess(){
   readOnly=!admin||!eventId;
+  const viewerActive=authResolved&&!admin&&!!eventId&&!loading;
+  show('cloudPanel',!viewerActive);
+  show('viewerLogin',viewerActive);
+  show('modeStatus',authResolved&&!!eventId&&!loading);
+  document.getElementById('modeStatus').textContent=admin?'管理モード':'閲覧専用：最新の内容を表示しています';
   show('login',!currentUser);show('logout',!!currentUser);show('newEvent',admin);
   show('eventBody',!!eventId&&loading===false);
   show('shareBox',!!eventId&&loading===false);
@@ -105,7 +115,8 @@ async function createEvent(){
   catch(err){setCloudStatus('作成失敗：'+err.message)}
 }
 function boot(){
-  document.getElementById('login').addEventListener('click',async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(e){setCloudStatus('ログイン失敗：'+e.code+' / '+e.message)}});
+  document.getElementById('login').addEventListener('click',async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(e){setCloudStatus('ログイン失敗：'+e.code+' / '+e.message);alert('ログインに失敗しました：'+e.message)}});
+  document.getElementById('viewerLogin').addEventListener('click',()=>document.getElementById('login').click());
   document.getElementById('logout').addEventListener('click',()=>signOut(auth).catch(e=>setCloudStatus(e.message)));
   document.getElementById('newEvent').addEventListener('click',createEvent);
   document.getElementById('copyUrl').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(location.href);setCloudStatus('URLをコピーしました')}catch(e){document.getElementById('shareUrl').select();setCloudStatus('URLを選択しました。長押ししてコピーしてください')}});
@@ -113,6 +124,7 @@ function boot(){
   else setCloudStatus('管理者はGoogleログインして「新しいイベント」を押してください。');
   onAuthStateChanged(auth,user=>{
     currentUser=user;
+    authResolved=true;
     // 管理者UIDはアプリに埋め込まず、Firestoreルールが書き込み可否を判定する。
     // 管理者判定は既存イベントへの安全な書き込みテストではなく、認証状態＋作成時の権限エラーで扱う。
     admin=!!user;
