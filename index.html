@@ -8,14 +8,30 @@ html{scroll-behavior:smooth}.jump{display:block;text-align:center;text-decoratio
 /* ロック時と編集時の入力欄の色を入れ替える */
 .inputcard.locked input:disabled:not([type=checkbox]),.inputcard.locked select:disabled{background:#eff6ff!important;border-color:#9dc2f4!important;color:#1f2d41!important;opacity:1;-webkit-text-fill-color:#1f2d41}
 .inputcard:not(.locked) input:not([type=checkbox]),.inputcard:not(.locked) select{background:#fff!important;border-color:#ccd6e5!important}
+
+/* 一般閲覧者：編集用の操作だけを隠し、データ表示は維持 */
+#eventBody.viewer-only #addMember,
+#eventBody.viewer-only #add,
+#eventBody.viewer-only .memberline button.danger,
+#eventBody.viewer-only .icondelete,
+#eventBody.viewer-only .lockwrap,
+#eventBody.viewer-only #importBtn,
+#eventBody.viewer-only #reset,
+#eventBody.viewer-only #saveDivider,
+#eventBody.viewer-only #storageStatus {display:none!important}
+#eventBody.viewer-only .itemheader {grid-template-columns:minmax(0,1fr)}
+#eventBody.viewer-only .inputcard .row {grid-template-columns:minmax(0,1fr)}
+#eventBody.viewer-only input:disabled:not([type=checkbox]),
+#eventBody.viewer-only select:disabled {background:#f7f9fc!important;border-color:#e2e8f0!important;color:#1f2d41!important;opacity:1;-webkit-text-fill-color:#1f2d41}
+#eventBody.viewer-only input[type=checkbox]:disabled {opacity:1}
 </style></head><body><main id="top">
 <h1>🧾 みんなの費用精算</h1><div class="muted">支払い済み・支払い予定の費用をまとめて精算</div>
 <section class="panel" id="cloudPanel"><h2>☁️ 共有イベント</h2><p id="authStatus" class="muted">接続中…</p><div class="actions"><button id="login" class="primary hidden">Googleで管理者ログイン</button><button id="logout" class="secondary hidden">ログアウト</button><button id="newEvent" class="secondary hidden">＋ 新しいイベント</button></div><div id="shareBox" class="hidden"><label for="shareUrl">閲覧用URL（参加者に共有）</label><input id="shareUrl" readonly><button id="copyUrl" class="secondary" style="margin-top:8px">URLをコピー</button></div><p id="cloudStatus" class="muted"></p></section><div id="eventBody" class="hidden"><section class="panel"><label for="trip">タイトル</label><input id="trip" placeholder="例：東京旅行"><div id="members"></div><button id="addMember" class="secondary" style="margin-top:12px">＋ メンバー追加</button></section>
 <a class="jump" href="#result">💰 精算結果を見る ↓</a>
-<section class="panel"><h2>入力</h2><div id="items"></div><button id="add" class="primary" style="width:100%;margin-top:10px">＋ 項目を追加</button><div class="line"></div><h2>折半しない費用の負担設定</h2><div id="exceptions"></div></section>
+<section class="panel"><h2 id="itemsHeading">入力</h2><div id="items"></div><button id="add" class="primary" style="width:100%;margin-top:10px">＋ 項目を追加</button><div class="line"></div><h2 id="exceptionsHeading">折半しない費用の負担設定</h2><div id="exceptions"></div></section>
 <section class="panel"><h2>一覧</h2><div id="overview"></div></section>
 <section class="panel result" id="result"><h2>💰 精算結果</h2><div id="summary" class="summary"></div><div id="settle" class="settle"></div><div id="splitWarning" class="resultwarning hidden" role="status"></div></section><a class="backtop" href="#top">↑ 画面上部へ戻る</a>
-<section class="panel"><h2>データの保存</h2><p class="muted">編集内容はFirestoreへ自動保存します。念のためJSONバックアップも利用できます。</p><div class="actions"><button class="secondary" id="export">JSONバックアップ</button><button class="secondary" id="importBtn">バックアップ読込</button></div><input type="file" id="importFile" accept=".json,application/json" class="hidden"><div class="line"></div><button class="danger" id="reset">このイベントのデータを初期化</button><p id="storageStatus" class="muted"></p></section>
+<section class="panel"><h2>データの保存</h2><p id="saveDescription" class="muted">編集内容はFirestoreへ自動保存します。念のためJSONバックアップも利用できます。</p><div class="actions"><button class="secondary" id="export">JSONバックアップ</button><button class="secondary" id="importBtn">バックアップ読込</button></div><input type="file" id="importFile" accept=".json,application/json" class="hidden"><div class="line" id="saveDivider"></div><button class="danger" id="reset">このイベントのデータを初期化</button><p id="storageStatus" class="muted"></p></section>
 <p class="muted" style="font-size:11px;line-height:1.7;margin:18px 4px 0">※ 均等割りで1円未満の端数が出る場合、1円単位でメンバー登録順に割り振ります。次の項目では前回の続きから割り振り、全体の負担額ができるだけ均等になるよう調整します。個別計算の項目は対象外です。</p>
 </div></main><script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js';
@@ -37,14 +53,21 @@ function refreshAccess(){
   show('shareBox',!!eventId&&loading===false);
   if(eventId)document.getElementById('shareUrl').value=location.href;
   authStatus.textContent=currentUser?'Googleログイン中（編集権限はFirestoreが判定）':'未ログイン（閲覧のみ）';
-  document.querySelectorAll('#eventBody input:not(#importFile),#eventBody select,#eventBody button').forEach(el=>{
-    if(el.id==='export')return;
-    if(el.id==='importBtn'||el.id==='reset'||el.id==='add'||el.id==='addMember'){el.disabled=readOnly;return}
-    if(readOnly)el.disabled=true;
-  });
-  document.getElementById('trip').disabled=readOnly;
-  if(readOnly){document.getElementById('importBtn').disabled=true;document.getElementById('reset').disabled=true}
+  const body=document.getElementById('eventBody');
+  body.classList.toggle('viewer-only',readOnly);
+  document.getElementById('itemsHeading').textContent=readOnly?'費用の内訳':'入力';
+  document.getElementById('exceptionsHeading').textContent=readOnly?'個別負担の内訳':'折半しない費用の負担設定';
+  document.getElementById('saveDescription').textContent=readOnly?'現在のイベント内容をJSON形式で保存できます。':'編集内容はFirestoreへ自動保存します。念のためJSONバックアップも利用できます。';
+  // render() が生成する入力欄を閲覧時は操作不可にする。
+  // 管理者の場合は renderItems() などで設定したロック状態を維持する。
+  if(readOnly){
+    body.querySelectorAll('input:not(#importFile),select,button:not(#export)').forEach(el=>{el.disabled=true});
+  }else{
+    document.getElementById('trip').disabled=false;
+    ['add','addMember','importBtn','reset'].forEach(id=>{document.getElementById(id).disabled=false});
+  }
 }
+
 function queueCloudSave(){
   if(readOnly||!eventId||loading)return;
   dirty=true;setCloudStatus('保存待ち…');clearTimeout(saveTimer);
