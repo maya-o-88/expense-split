@@ -29,9 +29,17 @@ html{scroll-behavior:smooth}.jump{display:block;text-align:center;text-decoratio
 .apphead h1{margin:8px 0 5px}
 #viewerLogin{font-size:11px;padding:9px 10px;white-space:nowrap;flex-shrink:0}
 #modeStatus{margin-top:2px}
+/* 管理者トップのイベント一覧 */
+#eventListPanel .event-entry{display:block;width:100%;text-align:left;background:#f3f7ff;color:#173c79;margin:8px 0;padding:13px;border:1px solid #d3e2f6;border-radius:10px}
+#eventListPanel .event-entry .listdate{font-size:11px;color:#65738a;font-weight:400;margin-top:4px}
+#eventListPanel .event-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch;margin:8px 0}
+#eventListPanel .event-list-row .event-entry{margin:0;min-width:0;overflow-wrap:anywhere}
+#eventListPanel .event-list-row .event-delete{font-size:12px;padding:10px 12px;border:1px solid #f0ced0}
+#eventListPanel .event-delete:disabled{opacity:.55;cursor:wait}
+#backToEvents{margin:0 0 12px;width:100%}
 </style></head><body><main id="top">
 <div class="apphead"><h1>🧾 みんなの費用精算</h1><button type="button" id="viewerLogin" class="secondary hidden">管理者ログイン</button></div><div id="modeStatus" class="muted hidden" role="status"></div>
-<section class="panel" id="cloudPanel"><h2>☁️ 共有イベント</h2><p id="authStatus" class="muted">接続中…</p><div class="actions"><button id="login" class="primary hidden">Googleで管理者ログイン</button><button id="logout" class="secondary hidden">ログアウト</button><button id="newEvent" class="secondary hidden">＋ 新しいイベント</button></div><div id="shareBox" class="hidden"><label for="shareUrl">閲覧用URL（参加者に共有）</label><input id="shareUrl" readonly><button id="copyUrl" class="secondary" style="margin-top:8px">URLをコピー</button></div><p id="cloudStatus" class="muted"></p></section><div id="eventBody" class="hidden"><section class="panel"><label for="trip">タイトル</label><input id="trip" placeholder="例：東京旅行"><div id="members"></div><button id="addMember" class="secondary" style="margin-top:12px">＋ メンバー追加</button></section>
+<section class="panel" id="cloudPanel"><h2>☁️ 共有イベント</h2><p id="authStatus" class="muted">接続中…</p><div class="actions"><button id="login" class="primary hidden">Googleで管理者ログイン</button><button id="logout" class="secondary hidden">ログアウト</button><button id="newEvent" class="secondary hidden">＋ 新しいイベント</button></div><div id="shareBox" class="hidden"><label for="shareUrl">閲覧用URL（参加者に共有）</label><input id="shareUrl" readonly><button id="copyUrl" class="secondary" style="margin-top:8px">URLをコピー</button></div><p id="cloudStatus" class="muted"></p></section><section class="panel hidden" id="eventListPanel"><h2>📋 イベント一覧</h2><p id="eventListStatus" class="muted">読み込み中…</p><div id="eventList"></div></section><div id="eventBody" class="hidden"><button type="button" id="backToEvents" class="secondary hidden">← イベント一覧へ戻る</button><section class="panel"><label for="trip">タイトル</label><input id="trip" placeholder="例：東京旅行"><div id="members"></div><button id="addMember" class="secondary" style="margin-top:12px">＋ メンバー追加</button></section>
 <a class="jump" href="#result">💰 精算結果を見る ↓</a>
 <section class="panel"><h2 id="itemsHeading">入力</h2><div id="items"></div><button id="add" class="primary" style="width:100%;margin-top:10px">＋ 項目を追加</button><div class="line"></div><h2 id="exceptionsHeading">折半しない費用の負担設定</h2><div id="exceptions"></div></section>
 <section class="panel"><h2>一覧</h2><div id="overview"></div></section>
@@ -41,7 +49,7 @@ html{scroll-behavior:smooth}.jump{display:block;text-align:center;text-decoratio
 </div></main><script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js';
 import {getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js';
-import {getFirestore, doc, getDoc, setDoc, onSnapshot} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
+import {getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, deleteDoc} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 (()=>{'use strict';
 const firebaseConfig={apiKey:'AIzaSyCfueQA4tF1qtPWLYTUgBpRYQw_7bTNnAk',authDomain:'expense-split-f748e.firebaseapp.com',projectId:'expense-split-f748e',storageBucket:'expense-split-f748e.firebasestorage.app',messagingSenderId:'1074975210736',appId:'1:1074975210736:web:5c6f5ead25b0d0604f9635'};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
@@ -59,6 +67,8 @@ function refreshAccess(){
   show('modeStatus',authResolved&&!!eventId&&!loading);
   document.getElementById('modeStatus').textContent=admin?'管理モード':'閲覧専用：最新の内容を表示しています';
   show('login',!currentUser);show('logout',!!currentUser);show('newEvent',admin);
+  show('eventListPanel',authResolved&&admin&&!eventId);
+  show('backToEvents',authResolved&&admin&&!!eventId&&!loading);
   show('eventBody',!!eventId&&loading===false);
   show('shareBox',!!eventId&&loading===false);
   if(eventId)document.getElementById('shareUrl').value=location.href;
@@ -74,6 +84,7 @@ function refreshAccess(){
     body.querySelectorAll('input:not(#importFile),select,button:not(#export)').forEach(el=>{el.disabled=true});
   }else{
     document.getElementById('trip').disabled=false;
+    document.getElementById('backToEvents').disabled=false;
     ['add','addMember','importBtn','reset'].forEach(id=>{document.getElementById(id).disabled=false});
   }
 }
@@ -114,11 +125,69 @@ async function createEvent(){
   try{await setDoc(doc(db,'events',id),{data,updatedAt:Date.now()});const u=new URL(location.href);u.searchParams.set('event',id);location.href=u.toString()}
   catch(err){setCloudStatus('作成失敗：'+err.message)}
 }
+async function loadEventList(){
+  const panel=document.getElementById('eventList');
+  const status=document.getElementById('eventListStatus');
+  panel.replaceChildren();
+  if(!currentUser||eventId)return;
+  status.textContent='イベントを読み込み中…';
+  const expectedUser=currentUser;
+  try{
+    const snapshot=await getDocs(collection(db,'events'));
+    if(currentUser!==expectedUser||eventId)return;
+    const events=snapshot.docs.map(d=>({id:d.id,title:d.data()?.data?.trip||'タイトル未設定',updatedAt:d.data()?.updatedAt}));
+    events.sort((a,b)=>(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0));
+    status.textContent=events.length?`${events.length}件のイベントがあります。`:'イベントはまだありません。「＋ 新しいイベント」から作成できます。';
+    for(const ev of events){
+      const row=document.createElement('div');row.className='event-list-row';
+      const btn=document.createElement('button');
+      btn.type='button';btn.className='event-entry';
+      const name=document.createElement('div');name.textContent=ev.title;btn.appendChild(name);
+      if(Number.isFinite(ev.updatedAt)){
+        const small=document.createElement('div');small.className='listdate';
+        small.textContent='最終更新：'+new Date(ev.updatedAt).toLocaleString('ja-JP');btn.appendChild(small);
+      }
+      btn.addEventListener('click',()=>{const u=new URL(location.href);u.searchParams.set('event',ev.id);location.href=u.toString()});
+      row.appendChild(btn);
+      const del=document.createElement('button');
+      del.type='button';del.className='danger event-delete';del.textContent='削除';
+      del.setAttribute('aria-label',`「${ev.title}」を削除`);
+      del.addEventListener('click',()=>deleteListedEvent(ev,del));
+      row.appendChild(del);panel.appendChild(row);
+    }
+  }catch(err){
+    if(currentUser!==expectedUser||eventId)return;
+    status.textContent=err.code==='permission-denied'?'イベント一覧の取得権限がありません。管理者アカウントでログインしているか確認してください。':'一覧の取得に失敗しました：'+err.message;
+  }
+}
+async function deleteListedEvent(ev,button){
+  if(!currentUser||!admin||eventId)return;
+  const name=ev.title;
+  if(!confirm(`「${name}」を削除しますか？\n\nメンバー・支出・精算データが完全に消え、共有URLも使えなくなります。\n削除する前に、このイベントのJSONバックアップを保存することをおすすめします。\n\n［キャンセル］で戻れます。`))return;
+  const answer=prompt(`最終確認：本当に削除する場合は、次のイベント名を正確に入力してください。\n\n${name}\n\n※ この操作は取り消せません。`);
+  if(answer===null)return;
+  if(answer!==name){alert('イベント名が一致しないため、削除しませんでした。');return}
+  if(!currentUser||!admin||eventId)return;
+  button.disabled=true;
+  const original=button.textContent;button.textContent='削除中…';
+  try{
+    await deleteDoc(doc(db,'events',ev.id));
+    await loadEventList();
+    setCloudStatus(`「${name}」を削除しました。`);
+  }catch(err){
+    button.disabled=false;button.textContent=original;
+    alert('削除できませんでした：'+err.message);
+  }
+}
 function boot(){
   document.getElementById('login').addEventListener('click',async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(e){setCloudStatus('ログイン失敗：'+e.code+' / '+e.message);alert('ログインに失敗しました：'+e.message)}});
   document.getElementById('viewerLogin').addEventListener('click',()=>document.getElementById('login').click());
   document.getElementById('logout').addEventListener('click',()=>signOut(auth).catch(e=>setCloudStatus(e.message)));
   document.getElementById('newEvent').addEventListener('click',createEvent);
+  document.getElementById('backToEvents').addEventListener('click',()=>{
+    if(dirty){alert('変更内容の保存が完了していません。画面上部に「保存しました」と表示されてから戻ってください。');return}
+    const u=new URL(location.href);u.searchParams.delete('event');location.href=u.toString();
+  });
   document.getElementById('copyUrl').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(location.href);setCloudStatus('URLをコピーしました')}catch(e){document.getElementById('shareUrl').select();setCloudStatus('URLを選択しました。長押ししてコピーしてください')}});
   if(urlId){if(validId(urlId))watchEvent(urlId);else setCloudStatus('イベントURLの形式が正しくありません。')}
   else setCloudStatus('管理者はGoogleログインして「新しいイベント」を押してください。');
@@ -130,6 +199,10 @@ function boot(){
     admin=!!user;
     if(eventId&&!loading)render();
     else refreshAccess();
+    if(!eventId){
+      if(user)loadEventList();
+      else{document.getElementById('eventList').replaceChildren();setCloudStatus('管理者はGoogleログインしてください。')}
+    }
   },err=>setCloudStatus('認証エラー：'+err.message));
 }
 
